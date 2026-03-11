@@ -20,9 +20,9 @@ def build_chat_engine():
     Builds the full RAG pipeline with memory and returns a chat engine.
     """
 
-    # 1. Embedding model (runs locally, no API key needed)
+    # 1. Embedding model (lightweight CPU-friendly model)
     embed_model = HuggingFaceEmbedding(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+        model_name="sentence-transformers/paraphrase-MiniLM-L3-v2"
     )
 
     # 2. LLM via Groq (fast and free) — native LlamaIndex integration

@@ -1,0 +1,26 @@
+HTTP/1.1 400 Bad Request
+Date: Wed, 11 Mar 2026 09:22:47 GMT
+Content-Type: text/html; charset=utf-8
+Transfer-Encoding: chunked
+Connection: keep-alive
+CF-RAY: 9da97f277891cc76-TPA
+access-control-allow-origin: *
+content-security-policy: default-src 'none'
+rndr-id: 6ea16646-5f8c-42b3
+vary: Accept-Encoding
+x-content-type-options: nosniff
+x-render-origin-server: Render
+cf-cache-status: DYNAMIC
+Server: cloudflare
+alt-svc: h3=":443"; ma=86400
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Error</title>
+</head>
+<body>
+<pre>Bad Request</pre>
+</body>
+</html>
