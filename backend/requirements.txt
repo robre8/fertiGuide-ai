@@ -2,9 +2,11 @@ fastapi
 uvicorn
 llama-index
 llama-index-embeddings-huggingface-api
+llama-index-llms-groq
 langchain
 langchain-community
 langchain-groq
 python-dotenv
 pypdf
 huggingface_hub
+nest_asyncio

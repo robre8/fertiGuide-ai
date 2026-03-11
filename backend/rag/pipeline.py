@@ -1,3 +1,6 @@
+import nest_asyncio
+nest_asyncio.apply()
+
 from llama_index.core import VectorStoreIndex, Settings
 from llama_index.embeddings.huggingface_api import HuggingFaceInferenceAPIEmbedding
 from llama_index.core.memory import ChatMemoryBuffer
