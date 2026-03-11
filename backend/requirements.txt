@@ -1,6 +1,9 @@
 fastapi==0.116.1
 uvicorn[standard]==0.35.0
 llama-index==0.12.52
-langchain==0.3.27
+llama-index-embeddings-huggingface
+llama-index-llms-groq
+langchain-groq
 python-dotenv==1.1.1
 pypdf==5.9.0
+sentence-transformers

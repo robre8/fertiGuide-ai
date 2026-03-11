@@ -1,0 +1,23 @@
+IVF Protocol Overview
+IVF (In Vitro Fertilization) involves ovarian stimulation, egg retrieval,
+fertilization in the lab, and embryo transfer.
+Common medications include FSH injections for stimulation.
+The luteal phase is supported with progesterone after transfer.
+Success rates vary by age: 40% under 35, 25% at 38-40, 10% over 42.
+
+Ovarian stimulation typically lasts 8-14 days.
+Follicle monitoring is done via transvaginal ultrasound every 2-3 days.
+Egg retrieval is performed under sedation when follicles reach 18-20mm.
+Fertilization rates with ICSI range from 70-80%.
+Embryo transfer is performed on day 3 or day 5 (blastocyst stage).
+Blastocyst transfers have higher implantation rates (~50% under 35).
+
+Endometrial preparation for frozen embryo transfer (FET):
+- Natural cycle: monitor ovulation, transfer on day LH+5 (blastocyst)
+- Artificial cycle: estradiol 2-6mg/day for 12-14 days, progesterone added 5 days before transfer
+
+OHSS (Ovarian Hyperstimulation Syndrome) risk factors:
+- High antral follicle count (>20)
+- AMH > 3.5 ng/mL
+- Previous OHSS episode
+Management: GnRH agonist trigger, freeze all embryos, cabergoline 0.5mg/day
