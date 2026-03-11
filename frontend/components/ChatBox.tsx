@@ -1,24 +1,17 @@
 'use client';
 import { useState } from 'react';
-import { gql, useMutation } from '@apollo/client';
 import ChatMessage from './ChatMessage';
 
-const ASK_ASSISTANT = gql`
-  mutation AskAssistant($message: String!) {
-    askAssistant(message: $message) {
-      response
-    }
-  }
-`;
-
 type Message = { role: 'user' | 'assistant'; text: string };
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
 export default function ChatBox() {
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', text: "Hello! I'm FertiGuide AI. Ask me anything about fertility treatments, protocols, or procedures." }
   ]);
   const [input, setInput] = useState('');
-  const [askAssistant, { loading }] = useMutation(ASK_ASSISTANT);
+  const [loading, setLoading] = useState(false);
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -26,18 +19,37 @@ export default function ChatBox() {
     const userMessage = input.trim();
     setInput('');
     setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
+    setLoading(true);
 
     try {
-      const { data } = await askAssistant({ variables: { message: userMessage } });
+      if (!BACKEND_URL) {
+        throw new Error('Missing NEXT_PUBLIC_BACKEND_URL');
+      }
+
+      const res = await fetch(`${BACKEND_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message: userMessage })
+      });
+
+      if (!res.ok) {
+        throw new Error(`Backend request failed with ${res.status}`);
+      }
+
+      const data = (await res.json()) as { response?: string };
       setMessages(prev => [...prev, {
         role: 'assistant',
-        text: data.askAssistant.response
+        text: data.response ?? 'Sorry, I could not generate a response.'
       }]);
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
         text: 'Sorry, I had trouble connecting. Please try again.'
       }]);
+    } finally {
+      setLoading(false);
     }
   };
 
