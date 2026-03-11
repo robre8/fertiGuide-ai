@@ -2,7 +2,19 @@
 import { ApolloProvider } from '@apollo/client';
 import { apolloClient } from '../lib/apollo';
 import ChatBox from '../components/ChatBox';
-import SymptomClassifier from '../components/SymptomClassifier';
+import dynamic from 'next/dynamic';
+
+const SymptomClassifier = dynamic(
+  () => import('../components/SymptomClassifier'),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+        <p className="text-sm text-gray-400">Loading symptom classifier...</p>
+      </div>
+    )
+  }
+);
 
 export default function Home() {
   return (
