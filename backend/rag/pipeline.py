@@ -121,7 +121,11 @@ def rebuild_index_from_supabase():
     pinecone_index = pc.Index(PINECONE_INDEX_NAME)
 
     print("🗑️  Clearing Pinecone index...")
-    pinecone_index.delete(delete_all=True)
+    try:
+        pinecone_index.delete(delete_all=True)
+    except Exception as e:
+        # Namespace may not exist yet (empty index) — safe to ignore
+        print(f"⚠️  Pinecone delete skipped (likely empty index): {e}")
 
     embed_model = HuggingFaceInferenceAPIEmbedding(
         model_name="sentence-transformers/all-MiniLM-L6-v2",
