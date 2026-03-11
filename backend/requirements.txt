@@ -1,10 +1,12 @@
 fastapi
 uvicorn
+python-multipart
 llama-index
 llama-index-embeddings-huggingface-api
 llama-index-llms-groq
 llama-index-vector-stores-pinecone
 pinecone-client
+supabase
 langchain
 langchain-community
 langchain-groq
