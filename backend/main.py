@@ -37,11 +37,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/")
 async def root():
-    return {
-        "status": "ok",
-        "service": "FertiGuide AI Backend",
-        "pipeline_ready": chat_engine is not None
-    }
+    return {"status": "FertiGuide AI Backend running"}
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
