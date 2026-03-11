@@ -84,7 +84,11 @@ def build_chat_engine():
 
     # 5. Check if index already has vectors; if not, load and index documents
     stats = pinecone_index.describe_index_stats()
-    total_vectors = stats.get("total_vector_count", 0)
+    # Pinecone SDK v3+ returns an object with attributes, not a dict
+    try:
+        total_vectors = stats.total_vector_count or 0
+    except AttributeError:
+        total_vectors = stats.get("total_vector_count", 0)  # legacy SDK fallback
 
     if total_vectors == 0:
         print("📥 Pinecone index is empty — loading and indexing documents...")

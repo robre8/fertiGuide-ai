@@ -34,19 +34,23 @@ export default function ChatBox() {
         body: JSON.stringify({ message: userMessage })
       });
 
+      const data = (await res.json()) as { response?: string; detail?: string };
+
       if (!res.ok) {
-        throw new Error(`Backend request failed with ${res.status}`);
+        const errMsg = data.response || data.detail || `Server error ${res.status}`;
+        setMessages(prev => [...prev, { role: 'assistant', text: `⚠️ ${errMsg}` }]);
+        return;
       }
 
-      const data = (await res.json()) as { response?: string };
       setMessages(prev => [...prev, {
         role: 'assistant',
         text: data.response ?? 'Sorry, I could not generate a response.'
       }]);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
       setMessages(prev => [...prev, {
         role: 'assistant',
-        text: 'Sorry, I had trouble connecting. Please try again.'
+        text: `Sorry, I had trouble connecting: ${msg}`
       }]);
     } finally {
       setLoading(false);
