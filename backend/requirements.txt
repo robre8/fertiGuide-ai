@@ -1,12 +1,10 @@
 fastapi
 uvicorn
 llama-index
-llama-index-embeddings-huggingface
-llama-index-llms-groq
+llama-index-embeddings-huggingface-api
+langchain
+langchain-community
 langchain-groq
 python-dotenv
 pypdf
-sentence-transformers
 huggingface_hub
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.9.1+cpu

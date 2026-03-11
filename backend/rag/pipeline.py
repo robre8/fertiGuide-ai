@@ -1,5 +1,5 @@
 from llama_index.core import VectorStoreIndex, Settings
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.embeddings.huggingface_api import HuggingFaceInferenceAPIEmbedding
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.llms.groq import Groq
@@ -20,9 +20,10 @@ def build_chat_engine():
     Builds the full RAG pipeline with memory and returns a chat engine.
     """
 
-    # 1. Embedding model (lightweight CPU-friendly model)
-    embed_model = HuggingFaceEmbedding(
-        model_name="sentence-transformers/paraphrase-MiniLM-L3-v2"
+    # 1. Embedding model via HF Inference API (no torch needed)
+    embed_model = HuggingFaceInferenceAPIEmbedding(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        token=os.getenv("HF_TOKEN")
     )
 
     # 2. LLM via Groq (fast and free) — native LlamaIndex integration
