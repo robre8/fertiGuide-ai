@@ -3,6 +3,8 @@ uvicorn
 llama-index
 llama-index-embeddings-huggingface-api
 llama-index-llms-groq
+llama-index-vector-stores-pinecone
+pinecone-client
 langchain
 langchain-community
 langchain-groq
