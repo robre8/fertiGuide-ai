@@ -38,15 +38,13 @@ export default function DocumentUpload() {
     setMessage('Uploading and re-indexing… this may take a minute.');
 
     const bytes = await file.arrayBuffer();
+    // Use query params instead of custom headers to avoid CORS preflight issues
+    const url = `${BACKEND_URL}/upload?secret=${encodeURIComponent(secret)}&filename=${encodeURIComponent(file.name)}`;
 
     try {
-      const res = await fetch(`${BACKEND_URL}/upload`, {
+      const res = await fetch(url, {
         method: 'POST',
-        headers: {
-          'x-upload-secret': secret,
-          'x-filename': file.name,
-          'content-type': 'application/octet-stream',
-        },
+        headers: { 'content-type': 'application/octet-stream' },
         body: bytes,
       });
       const data = await res.json();

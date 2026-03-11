@@ -15,8 +15,10 @@ app.add_middleware(
         os.getenv("FRONTEND_URL", "").rstrip("/")
     ],
     allow_origin_regex=r"https://.*\.vercel\.app",
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*", "content-type", "x-upload-secret", "x-filename", "authorization"],
+    expose_headers=["*"],
+    max_age=600,
 )
 
 
@@ -82,13 +84,17 @@ async def upload_document(
     request: Request,
     x_upload_secret: str = Header(None, alias="x-upload-secret"),
     x_filename: str = Header(None, alias="x-filename"),
+    secret: str = None,
+    filename: str = None,
 ):
     """
     Upload a document to Supabase Storage and re-index all documents into Pinecone.
     Requires the X-Upload-Secret header to match the UPLOAD_SECRET env var.
     """
+    # Accept secret from header OR query param
+    provided_secret = x_upload_secret or request.query_params.get("secret", "")
     expected_secret = os.getenv("UPLOAD_SECRET", "")
-    if not expected_secret or x_upload_secret != expected_secret:
+    if not expected_secret or provided_secret != expected_secret:
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     content_type = (request.headers.get("content-type") or "").lower()
@@ -109,7 +115,7 @@ async def upload_document(
         filename = getattr(uploaded, "filename", "") or ""
         content = await uploaded.read()
     else:
-        filename = (x_filename or request.query_params.get("filename", "")).strip()
+        filename = (x_filename or request.query_params.get("filename", "") or filename or "").strip()
         if not filename:
             return JSONResponse(
                 status_code=400,
