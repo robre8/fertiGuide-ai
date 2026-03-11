@@ -4,10 +4,15 @@ from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
 from llama_index.llms.groq import Groq
 from dotenv import load_dotenv
+from huggingface_hub import login
 from rag.loader import load_documents
 import os
 
 load_dotenv()
+
+hf_token = os.getenv("HF_TOKEN")
+if hf_token:
+    login(token=hf_token)
 
 
 def build_chat_engine():
