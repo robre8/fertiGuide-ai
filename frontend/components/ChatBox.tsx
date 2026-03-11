@@ -4,7 +4,7 @@ import ChatMessage from './ChatMessage';
 
 type Message = { role: 'user' | 'assistant'; text: string };
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
+const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL ?? '').replace(/\/+$/, '');
 
 export default function ChatBox() {
   const [messages, setMessages] = useState<Message[]>([
