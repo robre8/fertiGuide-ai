@@ -53,7 +53,10 @@ export default function DocumentUpload() {
         setMessage(data.detail ?? `Error ${res.status}`);
       } else {
         setStatus('success');
-        setMessage(`✅ "${data.filename}" uploaded and indexed successfully.`);
+        const msg = data.status === 'indexing'
+          ? `✅ "${data.filename}" uploaded. Reindexing in background — chat will be ready in ~1 minute.`
+          : `✅ "${data.filename}" uploaded and indexed successfully.`;
+        setMessage(msg);
         setFile(null);
         if (inputRef.current) inputRef.current.value = '';
       }

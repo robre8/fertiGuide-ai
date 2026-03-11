@@ -1,9 +1,10 @@
-from fastapi import FastAPI, Request, Header
+from fastapi import FastAPI, Request, Header, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import os
 import traceback
+import threading
 
 app = FastAPI(title="FertiGuide AI Backend")
 
@@ -34,6 +35,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # ── Motor cargado lazy (no bloquea el arranque) ──
 chat_engine = None
+# Tracks whether a background reindex is in progress
+_reindex_status = {"running": False, "last_error": None, "last_ok": None}
 
 def get_chat_engine():
     global chat_engine
@@ -71,8 +74,14 @@ async def chat(request: ChatRequest):
 async def health():
     return {
         "status": "ok",
-        "pipeline_ready": chat_engine is not None
+        "pipeline_ready": chat_engine is not None,
+        "reindex_running": _reindex_status["running"],
     }
+
+
+@app.get("/reindex-status")
+async def reindex_status():
+    return _reindex_status
 
 
 ALLOWED_EXTENSIONS = {".pdf", ".txt"}
@@ -143,13 +152,34 @@ async def upload_document(
     upload_to_supabase(filename, content)
     print(f"📄 Uploaded '{filename}' to Supabase Storage")
 
-    # Force re-index: clear Pinecone + re-ingest all docs from Supabase
+    # Reset engine and kick off reindex in the background so this
+    # request can return immediately (avoids Render's 30-second timeout).
     global chat_engine
     chat_engine = None
-    from rag.pipeline import rebuild_index_from_supabase
-    rebuild_index_from_supabase()
 
-    return {"status": "ok", "filename": filename}
+    def _run_reindex():
+        _reindex_status["running"] = True
+        _reindex_status["last_error"] = None
+        try:
+            from rag.pipeline import rebuild_index_from_supabase, build_chat_engine
+            rebuild_index_from_supabase()
+            global chat_engine
+            chat_engine = build_chat_engine()
+            _reindex_status["last_ok"] = filename
+            print(f"✅ Background reindex complete for '{filename}'")
+        except Exception as exc:
+            traceback.print_exc()
+            _reindex_status["last_error"] = str(exc)
+        finally:
+            _reindex_status["running"] = False
+
+    threading.Thread(target=_run_reindex, daemon=True).start()
+
+    return {
+        "status": "indexing",
+        "filename": filename,
+        "message": "File uploaded. Reindexing in background — chat will be ready in ~1 minute.",
+    }
 
 
 @app.get("/documents")
