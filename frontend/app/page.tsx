@@ -14,6 +14,11 @@ const SymptomClassifier = dynamic(
   }
 );
 
+const DocumentUpload = dynamic(
+  () => import('../components/DocumentUpload'),
+  { ssr: false }
+);
+
 export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-emerald-50 to-teal-50 p-8">
@@ -28,6 +33,7 @@ export default function Home() {
         <div className="grid grid-cols-1 gap-8">
           <ChatBox />
           <SymptomClassifier />
+          <DocumentUpload />
         </div>
       </div>
     </main>

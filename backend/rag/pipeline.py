@@ -1,7 +1,7 @@
 import nest_asyncio
 nest_asyncio.apply()
 
-from llama_index.core import VectorStoreIndex, StorageContext, Settings
+from llama_index.core import VectorStoreIndex, StorageContext, Settings, SimpleDirectoryReader
 from llama_index.embeddings.huggingface_api import HuggingFaceInferenceAPIEmbedding
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.core.chat_engine import CondensePlusContextChatEngine
@@ -10,7 +10,8 @@ from llama_index.vector_stores.pinecone import PineconeVectorStore
 from pinecone import Pinecone
 from dotenv import load_dotenv
 from huggingface_hub import login
-from rag.loader import load_documents
+from rag.storage import download_all_from_supabase
+from pathlib import Path
 import os
 
 load_dotenv()
@@ -20,6 +21,38 @@ if hf_token:
     login(token=hf_token)
 
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "fertiguide")
+DOCUMENTS_PATH = Path(__file__).parent.parent / "documents"
+
+
+def _load_documents_from_supabase_or_local():
+    """
+    Try Supabase first; fall back to local /documents folder.
+    Returns a list of LlamaIndex Document objects.
+    """
+    use_supabase = bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_SERVICE_KEY"))
+
+    if use_supabase:
+        print("📥 Downloading docs from Supabase Storage...")
+        paths = download_all_from_supabase()
+        if paths:
+            tmp_dir = str(paths[0].parent)
+            reader = SimpleDirectoryReader(
+                input_dir=tmp_dir,
+                required_exts=[".pdf", ".txt"]
+            )
+            docs = reader.load_data()
+            print(f"✅ Loaded {len(docs)} chunks from Supabase")
+            return docs
+        print("⚠️  Supabase bucket empty — falling back to local /documents")
+
+    # Fallback: local documents folder
+    reader = SimpleDirectoryReader(
+        input_dir=str(DOCUMENTS_PATH),
+        required_exts=[".pdf", ".txt"]
+    )
+    docs = reader.load_data()
+    print(f"✅ Loaded {len(docs)} chunks from local /documents")
+    return docs
 
 
 def build_chat_engine():
@@ -34,7 +67,7 @@ def build_chat_engine():
         token=os.getenv("HF_TOKEN")
     )
 
-    # 2. LLM via Groq (fast and free) — native LlamaIndex integration
+    # 2. LLM via Groq
     llm = Groq(
         model="llama-3.3-70b-versatile",
         api_key=os.getenv("GROQ_API_KEY")
@@ -54,8 +87,8 @@ def build_chat_engine():
     total_vectors = stats.get("total_vector_count", 0)
 
     if total_vectors == 0:
-        print("📥 Pinecone index is empty — indexing documents...")
-        documents = load_documents()
+        print("📥 Pinecone index is empty — loading and indexing documents...")
+        documents = _load_documents_from_supabase_or_local()
         storage_context = StorageContext.from_defaults(vector_store=vector_store)
         index = VectorStoreIndex.from_documents(
             documents, storage_context=storage_context
@@ -75,5 +108,30 @@ def build_chat_engine():
         verbose=True
     )
 
-    print("✅ Chat engine ready (Pinecone)")
+    print("✅ Chat engine ready (Pinecone + Supabase)")
     return chat_engine
+
+
+def rebuild_index_from_supabase():
+    """
+    Force re-index: clear Pinecone and re-load all docs from Supabase.
+    Called after a new document is uploaded.
+    """
+    pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+    pinecone_index = pc.Index(PINECONE_INDEX_NAME)
+
+    print("🗑️  Clearing Pinecone index...")
+    pinecone_index.delete(delete_all=True)
+
+    embed_model = HuggingFaceInferenceAPIEmbedding(
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        token=os.getenv("HF_TOKEN")
+    )
+    Settings.embed_model = embed_model
+
+    documents = _load_documents_from_supabase_or_local()
+    vector_store = PineconeVectorStore(pinecone_index=pinecone_index)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    VectorStoreIndex.from_documents(documents, storage_context=storage_context)
+    print(f"✅ Re-indexed {len(documents)} chunks into Pinecone")
+
