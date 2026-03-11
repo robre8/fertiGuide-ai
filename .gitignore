@@ -49,3 +49,9 @@ Thumbs.db
 *.log
 *.tmp
 *.bak
+
+# Local SSL certificates (do not commit)
+ssl/
+backend/ssl/
+*.pem
+*.key

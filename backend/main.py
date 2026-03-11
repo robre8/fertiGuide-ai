@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from rag.pipeline import build_chat_engine
+from contextlib import asynccontextmanager
+import asyncio
 
 app = FastAPI(title="FertiGuide AI Backend")
 
-# Allow frontend to call this API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
@@ -13,25 +13,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Build the AI pipeline once when server starts
-print("🔧 Building RAG pipeline...")
-chat_engine = build_chat_engine()
+# ── Motor cargado lazy (no bloquea el arranque) ──
+chat_engine = None
 
+def get_chat_engine():
+    global chat_engine
+    if chat_engine is None:
+        print("🔧 Building RAG pipeline on first request...")
+        from rag.pipeline import build_chat_engine
+        chat_engine = build_chat_engine()
+    return chat_engine
 
 class ChatRequest(BaseModel):
     message: str
 
-
 class ChatResponse(BaseModel):
     response: str
 
-
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    result = chat_engine.chat(request.message)
+    engine = get_chat_engine()
+    result = engine.chat(request.message)
     return ChatResponse(response=str(result))
-
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "pipeline_ready": chat_engine is not None
+    }
