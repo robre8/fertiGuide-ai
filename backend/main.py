@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, UploadFile, File, Header
+from fastapi import FastAPI, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -79,8 +79,9 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 @app.post("/upload")
 async def upload_document(
-    file: UploadFile = File(...),
+    request: Request,
     x_upload_secret: str = Header(None, alias="x-upload-secret"),
+    x_filename: str = Header(None, alias="x-filename"),
 ):
     """
     Upload a document to Supabase Storage and re-index all documents into Pinecone.
@@ -90,7 +91,35 @@ async def upload_document(
     if not expected_secret or x_upload_secret != expected_secret:
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
-    filename = file.filename or ""
+    content_type = (request.headers.get("content-type") or "").lower()
+    filename = ""
+    content = b""
+
+    if "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+        except Exception:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Could not parse multipart body. Please reselect the file and try again."},
+            )
+        uploaded = form.get("file")
+        if uploaded is None:
+            return JSONResponse(status_code=400, content={"detail": "Missing file field in form-data."})
+        filename = getattr(uploaded, "filename", "") or ""
+        content = await uploaded.read()
+    else:
+        filename = (x_filename or request.query_params.get("filename", "")).strip()
+        if not filename:
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Missing filename. Send it in x-filename header."},
+            )
+        content = await request.body()
+
+    if not content:
+        return JSONResponse(status_code=400, content={"detail": "File is empty."})
+
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         return JSONResponse(
@@ -98,7 +127,6 @@ async def upload_document(
             content={"detail": f"Unsupported file type '{ext}'. Only PDF and TXT are allowed."},
         )
 
-    content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         return JSONResponse(
             status_code=413,

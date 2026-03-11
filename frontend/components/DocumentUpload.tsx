@@ -37,14 +37,17 @@ export default function DocumentUpload() {
     setStatus('uploading');
     setMessage('Uploading and re-indexing… this may take a minute.');
 
-    const form = new FormData();
-    form.append('file', file);
+    const bytes = await file.arrayBuffer();
 
     try {
       const res = await fetch(`${BACKEND_URL}/upload`, {
         method: 'POST',
-        headers: { 'x-upload-secret': secret },
-        body: form,
+        headers: {
+          'x-upload-secret': secret,
+          'x-filename': file.name,
+          'content-type': 'application/octet-stream',
+        },
+        body: bytes,
       });
       const data = await res.json();
       if (!res.ok) {
