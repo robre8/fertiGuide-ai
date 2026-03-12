@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Request, Header
-from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -166,8 +165,11 @@ async def chat(request: ChatRequest):
                 content={"response": "Index is updating in background. Please try again in about a minute."},
             )
 
-        engine = await run_in_threadpool(get_chat_engine)
-        result = await run_in_threadpool(engine.chat, request.message)
+        engine = get_chat_engine()
+        if hasattr(engine, "achat"):
+            result = await engine.achat(request.message)
+        else:
+            result = engine.chat(request.message)
         return ChatResponse(response=str(result))
     except Exception as e:
         traceback.print_exc()
