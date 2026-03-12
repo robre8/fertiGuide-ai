@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, Header
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -159,8 +160,14 @@ async def root():
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     try:
-        engine = get_chat_engine()
-        result = engine.chat(request.message)
+        if _reindex_status["running"]:
+            return JSONResponse(
+                status_code=503,
+                content={"response": "Index is updating in background. Please try again in about a minute."},
+            )
+
+        engine = await run_in_threadpool(get_chat_engine)
+        result = await run_in_threadpool(engine.chat, request.message)
         return ChatResponse(response=str(result))
     except Exception as e:
         traceback.print_exc()
@@ -301,10 +308,11 @@ async def upload_document(
         _reindex_status["running"] = True
         _reindex_status["last_error"] = None
         try:
-            from rag.pipeline import rebuild_index_from_supabase, build_chat_engine
+            from rag.pipeline import rebuild_index_from_supabase
             rebuild_index_from_supabase()
+            # Let the next /chat request build a fresh engine in the request context.
             global chat_engine
-            chat_engine = build_chat_engine()
+            chat_engine = None
             _reindex_status["last_ok"] = filename
             print(f"✅ Background reindex complete for '{filename}'")
         except Exception as exc:
