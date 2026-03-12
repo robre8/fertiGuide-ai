@@ -166,8 +166,18 @@ async def chat(request: ChatRequest):
             )
 
         engine = get_chat_engine()
+
+        # Some dependency stacks behave differently across async/sync execution.
+        # Try async first when available, then fall back to sync for loop-related errors.
         if hasattr(engine, "achat"):
-            result = await engine.achat(request.message)
+            try:
+                result = await engine.achat(request.message)
+            except Exception as async_exc:
+                async_msg = str(async_exc)
+                if "Not currently running on any asynchronous event loop" in async_msg:
+                    result = engine.chat(request.message)
+                else:
+                    raise
         else:
             result = engine.chat(request.message)
         return ChatResponse(response=str(result))
