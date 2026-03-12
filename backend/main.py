@@ -19,7 +19,7 @@ app.add_middleware(
         "https://ferti-guide-ai.vercel.app",
         os.getenv("FRONTEND_URL", "").rstrip("/")
     ],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=None,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*", "content-type", "x-upload-secret", "x-filename", "authorization"],
     expose_headers=["*"],
@@ -29,7 +29,13 @@ app.add_middleware(
 
 SESSION_COOKIE_NAME = "fertiguide_admin_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "28800"))
-VERCEL_ORIGIN_RE = re.compile(r"^https://.*\.vercel\.app$")
+ALLOW_VERCEL_PREVIEWS = os.getenv("ALLOW_VERCEL_PREVIEWS", "false").lower() == "true"
+VERCEL_ORIGIN_RE = re.compile(r"^https://[a-z0-9-]+\.vercel\.app$", re.IGNORECASE)
+
+SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
+LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "300"))
+LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "600"))
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
 
 
 @app.exception_handler(Exception)
@@ -38,7 +44,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc)},
+        content={"detail": "Internal server error"},
     )
 
 
@@ -46,6 +52,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 chat_engine = None
 # Tracks whether a background reindex is in progress
 _reindex_status = {"running": False, "last_error": None, "last_ok": None}
+_login_attempts: dict[str, dict[str, int]] = {}
+_login_lock = threading.Lock()
 
 
 def _allowed_origins() -> set[str]:
@@ -62,7 +70,11 @@ def _allowed_origins() -> set[str]:
 def _is_trusted_origin(origin: str | None) -> bool:
     if not origin:
         return False
-    return origin in _allowed_origins() or bool(VERCEL_ORIGIN_RE.match(origin))
+    if origin in _allowed_origins():
+        return True
+    if ALLOW_VERCEL_PREVIEWS and VERCEL_ORIGIN_RE.match(origin):
+        return True
+    return False
 
 
 def _require_trusted_origin(request: Request) -> JSONResponse | None:
@@ -77,11 +89,68 @@ def _admin_username() -> str:
 
 
 def _admin_password() -> str:
-    return os.getenv("ADMIN_PASSWORD") or os.getenv("UPLOAD_SECRET", "")
+    value = os.getenv("ADMIN_PASSWORD", "")
+    if not value:
+        raise ValueError("ADMIN_PASSWORD is not configured")
+    return value
 
 
 def _session_secret() -> str:
-    return os.getenv("SESSION_SECRET") or _admin_password()
+    value = os.getenv("SESSION_SECRET", "")
+    if not value:
+        raise ValueError("SESSION_SECRET is not configured")
+    return value
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _is_login_locked(ip: str) -> tuple[bool, int]:
+    now = int(time.time())
+    with _login_lock:
+        row = _login_attempts.get(ip)
+        if not row:
+            return False, 0
+        lock_until = row.get("lock_until", 0)
+        if lock_until > now:
+            return True, lock_until - now
+        if now - row.get("first", now) > LOGIN_WINDOW_SECONDS:
+            _login_attempts.pop(ip, None)
+            return False, 0
+        return False, 0
+
+
+def _record_login_failure(ip: str) -> None:
+    now = int(time.time())
+    with _login_lock:
+        row = _login_attempts.get(ip)
+        if not row or now - row.get("first", now) > LOGIN_WINDOW_SECONDS:
+            row = {"count": 0, "first": now, "lock_until": 0}
+            _login_attempts[ip] = row
+        row["count"] += 1
+        if row["count"] >= LOGIN_MAX_ATTEMPTS:
+            row["lock_until"] = now + LOGIN_LOCKOUT_SECONDS
+
+
+def _record_login_success(ip: str) -> None:
+    with _login_lock:
+        _login_attempts.pop(ip, None)
+
+
+def _sanitize_filename(raw: str) -> str:
+    # Keep only basename and a strict safe charset.
+    name = os.path.basename(raw.strip())
+    if not name:
+        raise ValueError("Missing filename")
+    if not SAFE_FILENAME_RE.fullmatch(name):
+        raise ValueError("Invalid filename. Use letters, numbers, dot, underscore or dash.")
+    return name
 
 
 def _sign_session(payload: str) -> str:
@@ -185,7 +254,7 @@ async def chat(request: ChatRequest):
         traceback.print_exc()
         return JSONResponse(
             status_code=500,
-            content={"response": f"Backend error: {e}"},
+            content={"response": "Backend error. Please try again in a moment."},
         )
 
 @app.get("/health")
@@ -209,13 +278,26 @@ async def admin_login(payload: AdminLoginRequest, request: Request):
     if origin_error:
         return origin_error
 
-    expected_password = _admin_password()
-    if not expected_password:
-        return JSONResponse(status_code=500, content={"detail": "Admin password is not configured."})
+    ip = _client_ip(request)
+    locked, seconds_left = _is_login_locked(ip)
+    if locked:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": f"Too many failed attempts. Try again in {seconds_left}s."},
+        )
+
+    try:
+        expected_password = _admin_password()
+        _session_secret()  # ensure configured before issuing cookies
+    except ValueError:
+        return JSONResponse(status_code=500, content={"detail": "Admin auth is not configured."})
 
     provided_username = (payload.username or _admin_username()).strip()
     if provided_username != _admin_username() or payload.password != expected_password:
+        _record_login_failure(ip)
         return JSONResponse(status_code=401, content={"detail": "Invalid admin credentials."})
+
+    _record_login_success(ip)
 
     response = JSONResponse(content={"authenticated": True, "username": provided_username})
     response.set_cookie(
@@ -239,6 +321,9 @@ async def admin_logout(request: Request):
 
 @app.get("/reindex-status")
 async def reindex_status(request: Request):
+    origin_error = _require_trusted_origin(request)
+    if origin_error:
+        return origin_error
     if not _get_authenticated_admin(request):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return _reindex_status
@@ -290,6 +375,11 @@ async def upload_document(
                 content={"detail": "Missing filename. Send it in x-filename header."},
             )
         content = await request.body()
+
+    try:
+        filename = _sanitize_filename(filename)
+    except ValueError as err:
+        return JSONResponse(status_code=400, content={"detail": str(err)})
 
     if not content:
         return JSONResponse(status_code=400, content={"detail": "File is empty."})
@@ -345,6 +435,9 @@ async def upload_document(
 @app.get("/documents")
 async def list_documents(request: Request):
     """Return the list of documents currently stored in Supabase."""
+    origin_error = _require_trusted_origin(request)
+    if origin_error:
+        return origin_error
     if not _get_authenticated_admin(request):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     try:

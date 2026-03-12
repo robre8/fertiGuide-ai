@@ -59,9 +59,12 @@ Apollo GraphQL (optional layer, port 4000)
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key (not anon key) |
 | `ADMIN_USERNAME` | Admin username for document management (default: `admin`) |
-| `ADMIN_PASSWORD` | Admin password used to start an upload session |
-| `SESSION_SECRET` | Secret used to sign the admin session cookie |
-| `UPLOAD_SECRET` | Legacy fallback for admin password if `ADMIN_PASSWORD` is not set |
+| `ADMIN_PASSWORD` | Admin password used to start an upload session (required) |
+| `SESSION_SECRET` | Secret used to sign the admin session cookie (required) |
+| `ALLOW_VERCEL_PREVIEWS` | `true/false` to allow all `*.vercel.app` preview origins (default: `false`) |
+| `LOGIN_MAX_ATTEMPTS` | Max failed admin logins per window (default: `5`) |
+| `LOGIN_WINDOW_SECONDS` | Window size for failed login counter (default: `300`) |
+| `LOGIN_LOCKOUT_SECONDS` | Lockout time after max failures (default: `600`) |
 
 ### Frontend (Vercel)
 
@@ -101,7 +104,7 @@ npm run dev   # port 3000
 
 ## Document Upload Flow
 
-1. Open the **Upload Document** panel at the bottom of the app.
+1. Open the **Upload Document** panel.
 2. Sign in with the admin password.
 3. Select a PDF or TXT file (max 20 MB).
 4. Click **Upload & Re-index**.
