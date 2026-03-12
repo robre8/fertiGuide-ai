@@ -55,6 +55,19 @@ _reindex_status = {"running": False, "last_error": None, "last_ok": None}
 _login_attempts: dict[str, dict[str, int]] = {}
 _login_lock = threading.Lock()
 
+DOMAIN_KEYWORDS = {
+    "fertility", "infertility", "reproductive", "reproduction", "ivf", "iui", "fet",
+    "embryo", "blastocyst", "ovulation", "oocyte", "egg", "sperm", "semen",
+    "uterus", "endometrium", "endometriosis", "hormone", "hormonal", "amh", "fsh",
+    "lh", "estradiol", "progesterone", "pregnancy", "implantation", "miscarriage",
+    "clinic", "protocol", "gonadotropin", "stimulation", "retrieval", "transfer",
+    "art", "icsi", "pgt", "pgt-a", "follicle", "follicular", "menstrual", "cycle",
+}
+
+DOMAIN_ALLOWED_PHRASES = {
+    "hola", "hello", "hi", "buenas", "buenos dias", "buenas tardes", "thanks", "gracias",
+}
+
 
 def _allowed_origins() -> set[str]:
     origins = {
@@ -153,6 +166,24 @@ def _sanitize_filename(raw: str) -> str:
     return name
 
 
+def _is_domain_question(message: str) -> bool:
+    text = message.strip().lower()
+    if not text:
+        return False
+
+    # Allow simple greeting/thanks messages for conversational UX.
+    if text in DOMAIN_ALLOWED_PHRASES:
+        return True
+
+    # Token-based keyword check for fertility/ART domain.
+    tokens = re.findall(r"[a-z0-9+-]+", text)
+    if any(token in DOMAIN_KEYWORDS for token in tokens):
+        return True
+
+    # Also allow if key domain words appear as substrings in longer text.
+    return any(keyword in text for keyword in DOMAIN_KEYWORDS)
+
+
 def _sign_session(payload: str) -> str:
     secret = _session_secret().encode("utf-8")
     digest = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -232,6 +263,14 @@ async def chat(request: ChatRequest):
             return JSONResponse(
                 status_code=503,
                 content={"response": "Index is updating in background. Please try again in about a minute."},
+            )
+
+        if not _is_domain_question(request.message):
+            return ChatResponse(
+                response=(
+                    "I can only answer questions related to fertility and assisted reproductive "
+                    "technology (e.g., IVF, IUI, FET, hormones, protocols, and reproductive health)."
+                )
             )
 
         engine = get_chat_engine()
