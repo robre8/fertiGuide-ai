@@ -10,7 +10,7 @@ An intelligent clinical assistant for Assisted Reproductive Technology (ART), bu
 
 - **Chat Q&A** — ask questions over uploaded clinical PDFs/TXTs using a RAG pipeline (LlamaIndex + Groq LLM).
 - **Symptom Classifier** — lightweight client-side category classifier running entirely in the browser (no server roundtrip).
-- **Document Upload** — password-protected panel to upload new PDFs/TXTs. Files are stored in Supabase Storage and automatically re-indexed into Pinecone.
+- **Document Upload** — admin-only upload panel protected by a signed session cookie. Files are stored in Supabase Storage and automatically re-indexed into Pinecone.
 
 ---
 
@@ -55,10 +55,13 @@ Apollo GraphQL (optional layer, port 4000)
 | `GROQ_API_KEY` | Groq API key |
 | `HF_TOKEN` | HuggingFace token (for Inference API embeddings) |
 | `PINECONE_API_KEY` | Pinecone API key |
-| `PINECONE_INDEX_NAME` | Pinecone index name (default: `fertiguide`) |
+| `PINECONE_INDEX_NAME` | Pinecone index name|
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_KEY` | Supabase service role key (not anon key) |
-| `UPLOAD_SECRET` | Password required to upload documents |
+| `ADMIN_USERNAME` | Admin username for document management (default: `admin`) |
+| `ADMIN_PASSWORD` | Admin password used to start an upload session |
+| `SESSION_SECRET` | Secret used to sign the admin session cookie |
+| `UPLOAD_SECRET` | Legacy fallback for admin password if `ADMIN_PASSWORD` is not set |
 
 ### Frontend (Vercel)
 
@@ -99,7 +102,7 @@ npm run dev   # port 3000
 ## Document Upload Flow
 
 1. Open the **Upload Document** panel at the bottom of the app.
-2. Enter the `UPLOAD_SECRET` password.
+2. Sign in with the admin password.
 3. Select a PDF or TXT file (max 20 MB).
 4. Click **Upload & Re-index**.
 5. The file is stored in Supabase Storage.
@@ -116,10 +119,13 @@ On backend restart, if Pinecone is empty it automatically downloads all files fr
 |---|---|---|
 | `GET` | `/` | Health check |
 | `GET` | `/health` | Pipeline + reindex status |
-| `GET` | `/reindex-status` | Background reindex progress |
+| `GET` | `/admin/session` | Check whether the admin session is active |
+| `POST` | `/admin/login` | Start an admin session |
+| `POST` | `/admin/logout` | End the admin session |
+| `GET` | `/reindex-status` | Background reindex progress (admin only) |
 | `POST` | `/chat` | Send a message, get a RAG response |
-| `POST` | `/upload` | Upload a document (requires `secret` query param) |
-| `GET` | `/documents` | List documents in Supabase Storage |
+| `POST` | `/upload` | Upload a document (admin session required) |
+| `GET` | `/documents` | List documents in Supabase Storage (admin only) |
 
 ---
 

@@ -1,8 +1,12 @@
-from fastapi import FastAPI, Request, Header, BackgroundTasks
+from fastapi import FastAPI, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import hashlib
+import hmac
 import os
+import re
+import time
 import traceback
 import threading
 
@@ -19,8 +23,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*", "content-type", "x-upload-secret", "x-filename", "authorization"],
     expose_headers=["*"],
+    allow_credentials=True,
     max_age=600,
 )
+
+SESSION_COOKIE_NAME = "fertiguide_admin_session"
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "28800"))
+VERCEL_ORIGIN_RE = re.compile(r"^https://.*\.vercel\.app$")
 
 
 @app.exception_handler(Exception)
@@ -38,6 +47,91 @@ chat_engine = None
 # Tracks whether a background reindex is in progress
 _reindex_status = {"running": False, "last_error": None, "last_ok": None}
 
+
+def _allowed_origins() -> set[str]:
+    origins = {
+        "http://localhost:3000",
+        "https://ferti-guide-ai.vercel.app",
+    }
+    frontend_url = os.getenv("FRONTEND_URL", "").rstrip("/")
+    if frontend_url:
+        origins.add(frontend_url)
+    return origins
+
+
+def _is_trusted_origin(origin: str | None) -> bool:
+    if not origin:
+        return False
+    return origin in _allowed_origins() or bool(VERCEL_ORIGIN_RE.match(origin))
+
+
+def _require_trusted_origin(request: Request) -> JSONResponse | None:
+    origin = request.headers.get("origin")
+    if origin and not _is_trusted_origin(origin):
+        return JSONResponse(status_code=403, content={"detail": "Untrusted origin."})
+    return None
+
+
+def _admin_username() -> str:
+    return os.getenv("ADMIN_USERNAME", "admin")
+
+
+def _admin_password() -> str:
+    return os.getenv("ADMIN_PASSWORD") or os.getenv("UPLOAD_SECRET", "")
+
+
+def _session_secret() -> str:
+    return os.getenv("SESSION_SECRET") or _admin_password()
+
+
+def _sign_session(payload: str) -> str:
+    secret = _session_secret().encode("utf-8")
+    digest = hmac.new(secret, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return digest
+
+
+def _create_session_token(username: str) -> str:
+    expires_at = int(time.time()) + SESSION_TTL_SECONDS
+    payload = f"{username}:{expires_at}"
+    signature = _sign_session(payload)
+    return f"{payload}:{signature}"
+
+
+def _verify_session_token(token: str | None) -> str | None:
+    if not token:
+        return None
+    parts = token.split(":")
+    if len(parts) != 3:
+        return None
+    username, expires_at_raw, signature = parts
+    payload = f"{username}:{expires_at_raw}"
+    expected_signature = _sign_session(payload)
+    if not hmac.compare_digest(signature, expected_signature):
+        return None
+    try:
+        expires_at = int(expires_at_raw)
+    except ValueError:
+        return None
+    if expires_at < int(time.time()):
+        return None
+    return username
+
+
+def _get_authenticated_admin(request: Request) -> str | None:
+    return _verify_session_token(request.cookies.get(SESSION_COOKIE_NAME))
+
+
+def _cookie_settings(request: Request) -> dict:
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    is_https = forwarded_proto == "https"
+    return {
+        "httponly": True,
+        "secure": is_https,
+        "samesite": "none" if is_https else "lax",
+        "max_age": SESSION_TTL_SECONDS,
+        "path": "/",
+    }
+
 def get_chat_engine():
     global chat_engine
     if chat_engine is None:
@@ -51,6 +145,11 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+
+
+class AdminLoginRequest(BaseModel):
+    password: str
+    username: str | None = None
 
 
 @app.get("/")
@@ -79,8 +178,50 @@ async def health():
     }
 
 
+@app.get("/admin/session")
+async def admin_session(request: Request):
+    username = _get_authenticated_admin(request)
+    return {"authenticated": bool(username), "username": username}
+
+
+@app.post("/admin/login")
+async def admin_login(payload: AdminLoginRequest, request: Request):
+    origin_error = _require_trusted_origin(request)
+    if origin_error:
+        return origin_error
+
+    expected_password = _admin_password()
+    if not expected_password:
+        return JSONResponse(status_code=500, content={"detail": "Admin password is not configured."})
+
+    provided_username = (payload.username or _admin_username()).strip()
+    if provided_username != _admin_username() or payload.password != expected_password:
+        return JSONResponse(status_code=401, content={"detail": "Invalid admin credentials."})
+
+    response = JSONResponse(content={"authenticated": True, "username": provided_username})
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=_create_session_token(provided_username),
+        **_cookie_settings(request),
+    )
+    return response
+
+
+@app.post("/admin/logout")
+async def admin_logout(request: Request):
+    origin_error = _require_trusted_origin(request)
+    if origin_error:
+        return origin_error
+
+    response = JSONResponse(content={"authenticated": False})
+    response.delete_cookie(key=SESSION_COOKIE_NAME, path="/")
+    return response
+
+
 @app.get("/reindex-status")
-async def reindex_status():
+async def reindex_status(request: Request):
+    if not _get_authenticated_admin(request):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     return _reindex_status
 
 
@@ -91,19 +232,18 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 @app.post("/upload")
 async def upload_document(
     request: Request,
-    x_upload_secret: str = Header(None, alias="x-upload-secret"),
     x_filename: str = Header(None, alias="x-filename"),
-    secret: str = None,
     filename: str = None,
 ):
     """
     Upload a document to Supabase Storage and re-index all documents into Pinecone.
-    Requires the X-Upload-Secret header to match the UPLOAD_SECRET env var.
+    Requires an authenticated admin session.
     """
-    # Accept secret from header OR query param
-    provided_secret = x_upload_secret or request.query_params.get("secret", "")
-    expected_secret = os.getenv("UPLOAD_SECRET", "")
-    if not expected_secret or provided_secret != expected_secret:
+    origin_error = _require_trusted_origin(request)
+    if origin_error:
+        return origin_error
+
+    if not _get_authenticated_admin(request):
         return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
     content_type = (request.headers.get("content-type") or "").lower()
@@ -183,8 +323,10 @@ async def upload_document(
 
 
 @app.get("/documents")
-async def list_documents():
+async def list_documents(request: Request):
     """Return the list of documents currently stored in Supabase."""
+    if not _get_authenticated_admin(request):
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
     try:
         from rag.storage import list_supabase_documents
         docs = list_supabase_documents()
