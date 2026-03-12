@@ -20,7 +20,7 @@ export default function DocumentUpload() {
   useEffect(() => {
     let cancelled = false;
 
-    async function checkSession() {
+    async function resetSessionOnLoad() {
       if (!BACKEND_URL) {
         if (!cancelled) {
           setCheckingSession(false);
@@ -31,17 +31,19 @@ export default function DocumentUpload() {
       }
 
       try {
-        const res = await fetch(`${BACKEND_URL}/admin/session`, {
-          method: 'GET',
+        // Security policy: every page load starts logged out.
+        await fetch(`${BACKEND_URL}/admin/logout`, {
+          method: 'POST',
           credentials: 'include',
         });
-        const data = await res.json();
         if (!cancelled) {
-          setAuthenticated(Boolean(data.authenticated));
+          setAuthenticated(false);
+          setFile(null);
+          setPassword('');
         }
       } catch {
         if (!cancelled) {
-          setMessage('Could not verify admin session.');
+          setMessage('Could not reset admin session on load.');
           setStatus('error');
         }
       } finally {
@@ -51,7 +53,7 @@ export default function DocumentUpload() {
       }
     }
 
-    checkSession();
+    resetSessionOnLoad();
     return () => {
       cancelled = true;
     };
